@@ -64,20 +64,6 @@ playerColours = [
         "#999900"
 ];
 
-# Name may be in "bname:fname.truck" format, where 'bundle' is ZIP/subdir in modcache. See https://github.com/RigsOfRods/rigs-of-rods/pull/3171
-def getTruckFilenameFromStreamName(streamName):
-    if b':' in streamName:
-        return streamName.split(b':')[1]
-    else:
-        return streamName
-        
-# Name may be in "bname:fname.truck" format, where 'bundle' is ZIP/subdir in modcache. See https://github.com/RigsOfRods/rigs-of-rods/pull/3171
-def getTruckBundleNameFromStreamName(streamName):
-    if b':' in streamName:
-        return streamName.split(b':')[0]
-    else:
-        return streamName
-
 def getTruckName(filename):
     if filename in TruckToName.list:
         return TruckToName.list[filename]
@@ -86,14 +72,11 @@ def getTruckName(filename):
 def getTruckType(filename):
     return filename.split(b'.').pop().lower()
 
-def getTruckInfo(streamName):
-    filename = getTruckFilenameFromStreamName(streamName)
-    bundlename = getTruckBundleNameFromStreamName(streamName)
+def getTruckInfo(filename):
     return {
             'type': getTruckType(filename),
             'name': getTruckName(filename),
             'file': filename,
-            'bundle':bundlename
     }
 
 class interruptReceived(Exception):
@@ -343,6 +326,11 @@ class streamManager:
             return "%s%s" % (self.D[uid].user.username, COLOUR_WHITE)
 
     def getUsername(self, uid):
+        # RoR sometimes sends server/MOTD chat with source -1, especially right
+        # after an automatic reconnect. Treat that as the server instead of
+        # displaying unknown(-1) in Discord.
+        if uid == -1:
+            return "server"
         if uid in self.D:
             return self.D[uid].user.username
         elif not uid is None:
@@ -485,8 +473,8 @@ class Discord_Layer:
     # [game] <username> is now driving a <truckname> (streams: <number of streams>/<limit of streams>)
     def sayStreamReg(self, uid, stream):
         truckinfo =  getTruckInfo(stream.name);
-        banned = self.main.isVehicleBanned(s(truckinfo['file']))
-        if banned:
+        invalid = self.main.validate(s(truckinfo['file']))
+        if invalid:
             self.sayInfo("User **%s** with uid **%s** has spawned a **%s** which is a banned vehicle." % (self.sm.getUsername(uid), uid, s(truckinfo['file'])))
             self.main.queueKick(self.channelID, int(uid))
         else:
@@ -710,6 +698,10 @@ class RoR_Connection:
 
         if packet is None:
             self.logger.critical("Server sent nothing, while it should have sent us a welcome message.")
+            try:
+                self.disconnect()
+            except Exception:
+                pass
             return False
 
         # Some error handling
@@ -747,7 +739,7 @@ class RoR_Connection:
         s.type = TYPE_CHARACTER
         s.status = 0
         s.regdata = chr(2)
-        print("stream default: %d" % self.registerStream(s))
+        self.registerStream(s)
 
         # register chat stream
         s = stream_info_t()
@@ -755,7 +747,7 @@ class RoR_Connection:
         s.type = TYPE_CHAT
         s.status = 0
         s.regdata = 0
-        print("stream chat: %d" % self.registerStream(s))
+        self.registerStream(s)
 
         # set the time when we connected (needed to send stream data)
         self.connectTime = time.time()
@@ -768,11 +760,32 @@ class RoR_Connection:
     def disconnect(self):
         self.logger.info("Disconnecting...")
         self.runCondition = 0
-        time.sleep(5)
-        if not self.socket is None:
-            self.__sendUserLeave()
-            print('closing socket')
-            self.socket.close()
+
+        if self.socket is not None:
+            try:
+                self.__sendUserLeave()
+            except Exception as e:
+                self.logger.debug("Unable to send user leave during disconnect: %s", e)
+
+            try:
+                server_label = "unknown server"
+
+                if hasattr(self, "serverinfo"):
+                    if getattr(self.serverinfo, "servername", None):
+                        server_label = s(self.serverinfo.servername)
+                    elif getattr(self.serverinfo, "host", None) and getattr(self.serverinfo, "port", None):
+                        server_label = "%s:%s" % (self.serverinfo.host, self.serverinfo.port)
+
+                print("Closing connection to server '%s'" % server_label)
+                self.socket.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+
+            try:
+                self.socket.close()
+            except Exception:
+                pass
+
         self.socket = None
 
     # Internal use only!
@@ -957,21 +970,44 @@ class RoR_Connection:
         if self.socket is None:
             return False
 
-        try:
-            #print data
-            if data is None:
-                return
+        if data is None:
+            return False
 
-            self.socket.send(data)
-        except Exception as e:
-            self.logger.exception('sendMsg error: '+str(e))
+        try:
+            # sendall() ensures the full packet is written or raises an error.
+            self.socket.sendall(data)
+            return True
+
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError) as e:
+            self.logger.warning("sendMsg failed because the RoR socket disconnected: %s", e)
+
+            try:
+                self.socket.close()
+            except Exception:
+                pass
+
+            # This makes Client.bigLoop() exit; Client.run() already handles reconnecting.
+            self.socket = None
             self.runCondition = 0
-            # import traceback
-            # traceback.print_exc(file=sys.stdout)
-        return True
+            return False
+
+        except Exception as e:
+            self.logger.exception('sendMsg error: ' + str(e))
+            self.runCondition = 0
+            return False
 
     # Internal use only!
     def __packPacket(self, packet):
+        if packet.command < 0 or packet.source < 0 or packet.streamid < 0 or packet.size < 0:
+            self.logger.warning(
+                "Skipping invalid packet with negative value: command=%s source=%s streamid=%s size=%s",
+                packet.command,
+                packet.source,
+                packet.streamid,
+                packet.size
+            )
+            return None
+
         if packet.size == 0:
             # just header
             data = struct.pack('IIII', packet.command, packet.source, packet.streamid, packet.size)
@@ -1019,18 +1055,22 @@ class RoR_Connection:
                     if not tmp:
                         errorCount += 1;
                         if errorCount > 3:
-                            # lost connection
-                            self.logger.error("Connection error #ERROR_CON005")
-                            self.runCondition = 0
+                            if not self.runCondition:
+                                self.logger.info("Receive thread noticed clean shutdown.")
+                            else:
+                                self.logger.error("Connection error #ERROR_CON005")
+                                self.runCondition = 0
                             break
                         continue
                     else:
                         data += tmp
 
                 if not data or errorCount > 3:
-                    # lost connection
-                    self.logger.error("Connection error #ERROR_CON008")
-                    self.runCondition = 0
+                    if not self.runCondition:
+                        self.logger.info("Receive thread noticed clean shutdown.")
+                    else:
+                        self.logger.error("Connection error #ERROR_CON008")
+                        self.runCondition = 0
                     break
 
                 (command, source, streamid, size) = struct.unpack('IIII', data)
@@ -1049,23 +1089,30 @@ class RoR_Connection:
                     if not tmp:
                         errorCount += 1;
                         if errorCount > 3:
-                            # lost connection
-                            self.logger.error("Connection error #ERROR_CON006")
-                            self.runCondition = 0
+                            if not self.runCondition:
+                                self.logger.info("Receive thread noticed clean shutdown.")
+                            else:
+                                self.logger.error("Connection error #ERROR_CON006")
+                                self.runCondition = 0
                             break
                         continue
                     else:
                         data += tmp
             except socket.error:
-                self.logger.error("Connection error #ERROR_CON015")
-                self.runCondition = 0
+                if not self.runCondition:
+                    self.logger.info("Receive thread noticed clean shutdown.")
+                else:
+                    self.logger.error("Connection error #ERROR_CON015")
+                    self.runCondition = 0
                 break
 
             if command != MSG2_STREAM_UNREGISTER: # No data
                 if not data or errorCount > 3:
-                    # lost connection
-                    self.logger.error("Connection error #ERROR_CON007")
-                    self.runCondition = 0
+                    if not self.runCondition:
+                        self.logger.info("Receive thread noticed clean shutdown.")
+                    else:
+                        self.logger.error("Connection error #ERROR_CON007")
+                        self.runCondition = 0
                     break
 
             content = struct.unpack(str(size) + 's', data)[0]
@@ -1074,7 +1121,10 @@ class RoR_Connection:
                 self.logger.debug("R<| %-18s %03d:%02d (%d)" % (commandName(command), source, streamid, size))
 
             self.receivedMessages.put(DataPacket(command, source, streamid, size, content))
-        self.logger.warning("Receive thread exiting...")
+        if self.runCondition:
+            self.logger.warning("Receive thread exiting unexpectedly...")
+        else:
+            self.logger.info("Receive thread exited cleanly.")
 
     def setNetQuality(self, quality):
         if self.netQuality != quality:
@@ -1116,24 +1166,54 @@ class Client(threading.Thread):
 
     def run(self):
         reconnectionInterval = self.main.settings.getSetting('RoRclients', self.ID, 'reconnection_interval')
-        reconnectionTriesLeft = self.main.settings.getSetting('RoRclients', self.ID, 'reconnection_tries')
+        maxReconnectionTries = self.main.settings.getSetting('RoRclients', self.ID, 'reconnection_tries')
+
+        try:
+            reconnectionInterval = int(reconnectionInterval)
+        except (TypeError, ValueError):
+            reconnectionInterval = 10
+
+        try:
+            maxReconnectionTries = int(maxReconnectionTries)
+        except (TypeError, ValueError):
+            maxReconnectionTries = 30
+
+        # Protect against accidental zero/negative values in old configs.
+        if reconnectionInterval < 1:
+            reconnectionInterval = 10
+        if maxReconnectionTries < 1:
+            maxReconnectionTries = 30
+
+        reconnectionTriesLeft = maxReconnectionTries
         timeUntilRetry = 0
 
         while not self.fullShutdown:
-            # Start the big loop
-            # This shouldn't return, unless we lose connection
-            self.bigLoop()
+            # bigLoop() returns True if this client reached a real connected state.
+            # When that happens, reset the retry budget so one later restart does not
+            # permanently consume reconnect attempts from earlier successful sessions.
+            connectedOnce = self.bigLoop()
+
+            if connectedOnce:
+                reconnectionTriesLeft = maxReconnectionTries
 
             # disconnect if we're still connected
             if self.server.isConnected():
                 self.logger.debug("Disconnecting as we're trying to connect while still connected.")
                 self.server.disconnect()
 
-            # decrement our connection tries variable
+            # decrement our connection tries variable for this reconnect cycle
             reconnectionTriesLeft -= 1
 
             # Wait some seconds before trying to reconnect
             if not self.fullShutdown and reconnectionTriesLeft > 0:
+                self.logger.warning(
+                    "RoRclient %s disconnected. Reconnecting in %s seconds (%s/%s tries left).",
+                    self.ID,
+                    reconnectionInterval,
+                    reconnectionTriesLeft,
+                    maxReconnectionTries,
+                )
+
                 timeUntilRetry = time.time()+reconnectionInterval
                 while time.time() < timeUntilRetry:
                     try:
@@ -1149,7 +1229,8 @@ class Client(threading.Thread):
                 break
 
         if reconnectionTriesLeft == 0:
-            self.discord.sayError("Unable to reconnect. Exiting RoRclient %s ..." % self.ID)
+            self.discord.sayError("Unable to reconnect to RoR server for client %s after %s attempts." % (self.ID, maxReconnectionTries))
+            self.logger.error("Unable to reconnect to RoR server for client %s after %s attempts.", self.ID, maxReconnectionTries)
         elif self.fullShutdown:
             self.discord.sayInfo("RoRclient %s exiting on demand..." % self.ID)
         else:
@@ -1157,6 +1238,7 @@ class Client(threading.Thread):
 
 
     def bigLoop(self):
+        connectedOnce = False
         # some default values
         user                = user_info_t()
         user.username       = self.main.settings.getSetting('RoRclients', self.ID, 'username')
@@ -1170,21 +1252,25 @@ class Client(threading.Thread):
         serverinfo.host      = self.main.settings.getSetting('RoRclients', self.ID, 'host')
         serverinfo.port      = self.main.settings.getSetting('RoRclients', self.ID, 'port')
         serverinfo.password  = self.main.settings.getSetting('RoRclients', self.ID, 'password')
+        serverinfo.protocolversion = self.main.settings.getSetting('RoRclients', self.ID, 'protocolversion')
         serverinfo.pasworded = len(serverinfo.password)!=0
 
         # try to connect to the server
         self.logger.debug("Connecting to server")
         if not self.server.connect(user, serverinfo):
-            self.discord.sayError("Couldn't connect to server (#ERROR_CON001)")
+            # Do not spam Discord for transient reconnect attempts. The final
+            # failure is reported by run() if all retry attempts are exhausted.
             self.logger.error("Couldn't connect to server (#ERROR_CON001)")
-            return
+            return False
 
         # double check that we're connected
         if not self.server.isConnected():
-            self.discord.sayError("Couldn't connect to server (#ERROR_CON002)")
+            # Do not spam Discord for transient reconnect attempts. The final
+            # failure is reported by run() if all retry attempts are exhausted.
             self.logger.error("Couldn't connect to server (#ERROR_CON002)")
-            return
+            return False
 
+        connectedOnce = True
         self.discord.sayInfo("Connected to server %s" % s(serverinfo.servername))
         print("Connected to server '%s'" % s(serverinfo.servername))
 
@@ -1196,8 +1282,7 @@ class Client(threading.Thread):
         # finaly, we start this loop
         while self.server.runCondition:
             if not self.server.isConnected():
-                self.logger.error("Connection to server lost")
-                self.discord.sayError("Lost connection to server (#ERROR_CON003)")
+                self.logger.warning("Connection to server lost. Reconnect loop will retry.")
                 break
 
             packet = self.server.receiveMsg(0.03)
@@ -1217,6 +1302,7 @@ class Client(threading.Thread):
         # We're not in the loop anymore...
         self.eh.on_disconnect()
         self.sm.clear()
+        return connectedOnce
 
     #####################
     # GENERAL FUNCTIONS #
@@ -1260,6 +1346,15 @@ class Client(threading.Thread):
 
             self.logger.debug("CHAT| " + str_tmp)
 
+            # RoR sends MOTD lines every time the bot connects/reconnects.
+            # Keep them out of Discord so reconnects only show the normal
+            # "Connected to server" message instead of re-posting the MOTD.
+            if str_tmp.startswith("MOTD:"):
+                self.logger.info("MOTD suppressed from Discord: " + str_tmp)
+                return
+
+            # Server/MOTD lines may be sent as source -1 on automatic reconnect.
+            # getUsername(-1) normalizes this to "server" for Discord output.
             self.discord.sayChat(str_tmp, packet.source)
 
             # ignore chat from ourself

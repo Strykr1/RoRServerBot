@@ -62,6 +62,7 @@ class Config:
                 'host': None,
                 'port': 0,
                 'password': '',
+                'protocolversion': 'RoRnet_2.44',
 
                 'username': 'services',
                 'usertoken': '',
@@ -77,8 +78,8 @@ class Config:
                         # },
                 },
 
-                'reconnection_interval': 5,
-                'reconnection_tries': 3,
+                'reconnection_interval': 10,
+                'reconnection_tries': 30,
         }
 
         # Fill the whole settings dictionary with default values
@@ -174,6 +175,7 @@ class Config:
             s['host']     = RoRclient.find("./server").get("host", default=s['host'])
             s['port'] = int(RoRclient.find("./server").get("port", default=s['port']))
             s['password'] = RoRclient.find("./server").get("password", default=s['password'])
+            s['protocolversion'] = RoRclient.find("./server").get("protocolversion", default=RoRclient.find("./server").get("protocol", default=s['protocolversion']))
         if ( s['host'] is None or s['port']==0 ) and ID != "default/template":
             self.logger.error("configuration/RoRclients/RoRclient(%s)/server[@host, @port] needs to be set!", ID)
             self.logger.error("Ignoring RoRclient(%s)", ID)
@@ -193,6 +195,12 @@ class Config:
             s['username']     = RoRclient.find("./user").get("name", default=s['username'])
             s['usertoken']    = RoRclient.find("./user").get("token", default=s['usertoken'])
             s['userlanguage'] = RoRclient.find("./user").get("language", default=s['userlanguage'])
+
+        # if an element <reconnect> exists
+        if not RoRclient.find("./reconnect") is None:
+            reconnect = RoRclient.find("./reconnect")
+            s['reconnection_interval'] = int(reconnect.get("interval", default=s['reconnection_interval']))
+            s['reconnection_tries'] = int(reconnect.get("tries", default=s['reconnection_tries']))
 
         # if an element <announcements> exists
         if not RoRclient.find("./announcements") is None:
@@ -317,7 +325,7 @@ class Main(discord.Client):
                 self.RoRclients[ID].setName('RoR_thread_'+ID)
                 self.RoRclients[ID].start()
 
-    def isVehicleBanned(self, truck):
+    def validate(self, truck):
         if os.path.isfile('truck.blacklist') == False:
             return False
 
