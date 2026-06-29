@@ -4,7 +4,8 @@
 	It's really easy, if you can host a RoR-server, host this bot,
 	then I assume that you can read/write XML as well.
 	
-	There're 2 sections in this file:
+	There're 3 sections in this file:
+	  - The general configuration with soEme general stuff in it
 	  - The Discord configuration
 	  - The RoR-server(s) configuration
 	Quite self-explanatory.
@@ -12,34 +13,74 @@
 	Minimal configuration:
 		<configuration>
 			<Discordclient>
-				<bot token="" />
+				<bot token="PUT_DISCORD_BOT_TOKEN_HERE" />
 			</Discordclient>
 			<RoRclients>
 				<RoRclient>
-					<server host="yourHost" port=somePort />
-					<discord channel="" />
+					<server host="SERVER_IP_OR_HOSTNAME" port=somePort />
+					<discord channel="PUT_DISCORD_CHANNEL_ID_HERE" />
 				</RoRclient>
 			</RoRclients>
 		</configuration>
  -->
 <configuration>
 
+	<general>
+		<version>2022.12</version>
+		<fullversion>2022.12</fullversion>
+		<logfile append="yes" level="debug">RoRservices.log</logfile> <!-- that doesn't work -->
+	</general>
+
 	<Discordclient>
-		<bot token="" />
+		<bot token="PUT_DISCORD_BOT_TOKEN_HERE" />
 	</Discordclient>
 	
 	<RoRclients>
-		<RoRclient id="myServer1" enabled="yes">
-			<server host="example.com" port="12000" password="" />
-			<user name="Services" token="515cf64ec28c445ca5786ec7122d7154" language="en_US" />
-			<!-- Copy and paste the channel ID here. To get the channel ID you must first enter 
-			Developer Mode from User Settings -> Appearance -> Advanced -> and toggle on/off
-			for Developer Mode -->
-			<discord channel="" />
-			<announcements delay="600" enabled="yes"> <!-- delay in seconds -->
-				<announcement>Hi, I'm an announcement</announcement>
-				<announcement>And I'm the second announcement.</announcement>
-				<announcement>And I'm the last one. After me, you'll see number 1 again</announcement>
+		<RoRclient id="default/template" enabled="no">
+            <server password="" />
+            <user name="Services" token="PUT_DISCORD_BOT_TOKEN_HERE" language="en_US" />
+            <announcements delay="2700" enabled="yes"> <!-- delay in seconds -->
+				<announcement>#0101DFWelcome to Example Community!</announcement>
+				<announcement>#0101DFMake sure to check us out at example.com!</announcement>
+				<announcement>#0101DFThis server is sponsored by Example Community.</announcement>
+            </announcements>
+        </RoRclient>
+		
+		<RoRclient id="Server1" enabled="yes">
+			<server host="SERVER_IP_OR_HOSTNAME" port="12720" password="" protocolversion="RoRnet_2.45" />
+			<user name="Services" token="PUT_DISCORD_BOT_TOKEN_HERE" language="en_US" />
+			<discord channel="PUT_DISCORD_CHANNEL_ID_HERE" />
+			<announcements delay="2700" enabled="no"> <!-- delay in seconds -->
+            </announcements>
+		</RoRclient>
+		
+		<RoRclient id="Example_Any" enabled="yes">
+			<server host="SERVER_IP_OR_HOSTNAME" port="12721" password="" protocolversion="RoRnet_2.44" />
+			<user name="Services" token="PUT_DISCORD_BOT_TOKEN_HERE" language="en_US" />
+			<discord channel="PUT_DISCORD_CHANNEL_ID_HERE" />
+			<announcements delay="1800" enabled="yes"> <!-- delay in seconds -->
+				<announcement>#0101DFWelcome to Example Community!</announcement>
+				<announcement>#0101DFMake sure to check us out at example.com!</announcement>
+				<announcement>#0101DFPlease make sure to check and obide by our rules! Use !rules to view them.</announcement>
+			</announcements>
+		</RoRclient>
+		
+		<RoRclient id="Server2" enabled="yes">
+			<server host="SERVER_IP_OR_HOSTNAME" port="12000" password="" protocolversion="RoRnet_2.44" />
+			<user name="Services" token="PUT_DISCORD_BOT_TOKEN_HERE" language="en_US" />
+			<discord channel="PUT_DISCORD_CHANNEL_ID_HERE" />
+			<announcements delay="1800" enabled="yes"> <!-- delay in seconds -->
+				<announcement>#0101DFThis server is sponsored by Example Community.</announcement>
+				<announcement>#0101DFCheck out Example Community at example.com</announcement>
+			</announcements>
+		</RoRclient>
+		
+		<RoRclient id="Server3" enabled="yes">
+			<server host="SERVER_IP_OR_HOSTNAME" port="12448" password="" protocolversion="RoRnet_2.45" />
+			<user name="Services" token="PUT_DISCORD_BOT_TOKEN_HERE" language="en_US" />
+			<discord channel="PUT_DISCORD_CHANNEL_ID_HERE" />
+			<announcements delay="1800" enabled="yes"> <!-- delay in seconds -->
+				<announcement>This server is sponsored by Example Community.</announcement>
 			</announcements>
 		</RoRclient>
 	</RoRclients>

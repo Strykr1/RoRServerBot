@@ -62,6 +62,7 @@ class Config:
                 'host': None,
                 'port': 0,
                 'password': '',
+                'protocolversion': 'RoRnet_2.45',
 
                 'username': 'services',
                 'usertoken': '',
@@ -174,6 +175,7 @@ class Config:
             s['host']     = RoRclient.find("./server").get("host", default=s['host'])
             s['port'] = int(RoRclient.find("./server").get("port", default=s['port']))
             s['password'] = RoRclient.find("./server").get("password", default=s['password'])
+            s['protocolversion'] = RoRclient.find("./server").get("protocolversion", default=RoRclient.find("./server").get("protocol", default=s['protocolversion']))
         if ( s['host'] is None or s['port']==0 ) and ID != "default/template":
             self.logger.error("configuration/RoRclients/RoRclient(%s)/server[@host, @port] needs to be set!", ID)
             self.logger.error("Ignoring RoRclient(%s)", ID)
@@ -318,6 +320,9 @@ class Main(discord.Client):
                 self.RoRclients[ID].start()
 
     def isVehicleBanned(self, truck):
+        return self.validate(truck)
+
+    def validate(self, truck):
         if os.path.isfile('truck.blacklist') == False:
             return False
 
