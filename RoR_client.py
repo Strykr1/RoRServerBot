@@ -72,11 +72,30 @@ def getTruckName(filename):
 def getTruckType(filename):
     return filename.split(b'.').pop().lower()
 
-def getTruckInfo(filename):
+# Name may be in "bundle:filename.truck" format, where "bundle" is ZIP/subdir in modcache.
+# See https://github.com/RigsOfRods/rigs-of-rods/pull/3171
+def getTruckFilenameFromStreamName(streamName):
+    if b':' in streamName:
+        return streamName.split(b':')[1]
+    else:
+        return streamName
+
+# Name may be in "bundle:filename.truck" format, where "bundle" is ZIP/subdir in modcache.
+# See https://github.com/RigsOfRods/rigs-of-rods/pull/3171
+def getTruckBundleNameFromStreamName(streamName):
+    if b':' in streamName:
+        return streamName.split(b':')[0]
+    else:
+        return streamName
+
+def getTruckInfo(streamName):
+    filename = getTruckFilenameFromStreamName(streamName)
+    bundlename = getTruckBundleNameFromStreamName(streamName)
     return {
             'type': getTruckType(filename),
             'name': getTruckName(filename),
             'file': filename,
+            'bundle': bundlename
     }
 
 class interruptReceived(Exception):
