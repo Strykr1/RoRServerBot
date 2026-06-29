@@ -2,7 +2,7 @@
 
 ![RoRBot](https://i.imgur.com/wUJdzYp.png)
 
-This is a bot for Rigs of Rods multiplayer servers running RoRNet 2.43 (RoR version 2021.04+)
+This is a bot for Rigs of Rods multiplayer servers running RoRNet 2.44 (RoR version 2022.12+)
 
 # Features
 
@@ -13,8 +13,7 @@ This is a bot for Rigs of Rods multiplayer servers running RoRNet 2.43 (RoR vers
 
 # Installation (Outdated)
 
-An in-depth installation guide can be found on the [Wiki](https://github.com/CuriousMike56/RoRServerBot/wiki), along with a [configuration guide](https://github.com/CuriousMike56/RoRServerBot/wiki/Configuration) and a [commands list](https://github.com/CuriousMike56/RoRServerBot/wiki/Commands).
-
+An in-depth installation guide can be found on the [Wiki](https://github.com/tritonas00/RoRServerBot/wiki), along with a [configuration guide](https://github.com/tritonas00/RoRServerBot/wiki/Configuration) and a [commands list](https://github.com/tritonas00/RoRServerBot/wiki/Commands).
 # Credits
 
 - Neorej16 and contributors - Original bot code 
